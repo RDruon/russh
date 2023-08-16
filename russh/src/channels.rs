@@ -1,3 +1,6 @@
+use std::pin::Pin;
+
+use futures::{Future, FutureExt};
 use russh_cryptovec::CryptoVec;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 use log::debug;
@@ -361,6 +364,26 @@ impl<S: From<(ChannelId, ChannelMsg)> + Send + 'static> Channel<S> {
             .send((self.id, msg).into())
             .await
             .map_err(|_| Error::SendError)
+    }
+
+    /// Get a `FnOnce` that can be used to send a signal through this channel
+    pub fn get_signal_sender(
+        &self,
+    ) -> impl FnOnce(Sig) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
+        let sender = self.sender.clone();
+        let id = self.id;
+
+        move |signal| {
+            async move {
+                sender
+                    .send((id, ChannelMsg::Signal { signal }).into())
+                    .await
+                    .map_err(|_| Error::SendError)?;
+
+                Ok(())
+            }
+            .boxed()
+        }
     }
 
     /// Request that the channel be closed.
